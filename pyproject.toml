@@ -1,0 +1,20 @@
+[project]
+name = "novellia-takehome"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Rachel Schirra", email = "rachel@funnyletter.net" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.156.2",
+    "fhir-resources>=8.3.0",
+]
+
+[project.scripts]
+novellia-takehome = "novellia_takehome:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
