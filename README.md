@@ -10,6 +10,24 @@
 
 # Features to Write
 - Find all records in a given category with incomplete or bad data, offer them to user to resolve?
+  - Flag when a patient ID reference doesn't exist
+- Return all resources...
+  - In the specified category
+  - For the specified patient
+  - For the specified provider
+  - For the specified condition
+- Upload a new dataset in json format and validate it
+- Get patient records by patient name (so, look up patient record ID by name -- maintain a dict of patient names --> IDs)
+  - Also do this for providers
+  - lowercased, token-based -- look up best way to handle this
 
 # Notes
 - Found fhir.resources package for handling fhir data -- based on pydantic, so should be easy to learn. (https://pypi.org/project/fhir.resources/)
+  - Use R4B format
+
+# Decision log
+## Use fhir.resources package with R4B format
+- This gets me Pydantic models for this data for free -- I love a Pydantic model and there's no point writing one myself.
+- Downsides: R4B validation is very permissive, so I'm going to have to validate the contents of the records myself in a lot of cases.
+
+## Not implementing...

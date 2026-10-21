@@ -1,2 +1,5 @@
+import uvicorn
+
+
 def main() -> None:
-    print("Hello from novellia-takehome!")
+    uvicorn.run("novellia_takehome.api:app", reload=True)

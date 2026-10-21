@@ -22,13 +22,13 @@ This is a backend take-home for Novellia Health. The task is to build an API tha
 - Dependencies: `fastapi`, `fhir-resources` (Pydantic-based FHIR R5 models, e.g. `fhir.resources.patient.Patient`), and `loguru` for logging.
 - Install or sync: `uv sync`
 - Add a dependency: `uv add <pkg>`
-- Run a script: `uv run python exploration.py` (run it from the repo root, since the data path is relative)
-- Package entry point: `uv run novellia-takehome`, which calls `novellia_takehome:main` (currently a stub)
+- Run the API: `uv run novellia-takehome` (uvicorn with reload on http://localhost:8000, docs at `/docs`). The app is `novellia_takehome.api:app`; it loads the data once at startup via `FHIRData`. Set `DATA_FILE` to use a different JSONL file.
+- Endpoints: `GET /resources/{resource_type}`, `GET /patients/{patient_id}/resources`, `GET /validation-failures` (returns `{parse_failures, issues}`; filter issues with `?severity=`, `?resource_type=`, `?code=`).
 
-No test runner, linter, or FastAPI server command is configured yet. Update this section when one is added.
+No test runner or linter is configured yet. Update this section when one is added.
 
 **Use the R4B models.** The data is FHIR R4, but `fhir.resources` 8.x defaults to R5, which rejects fields like `Condition.recorder` (`extra_forbidden`). Import from `fhir.resources.R4B` and resolve types with `get_fhir_model_class(resourceType)`, which raises `ValueError` for non-FHIR types such as `ClinicalNote`. R4B validation is lenient on required fields, so `cond-nw-bad-001` (no `code`) and `med-fd-002` (empty `dosageInstruction`) still pass and need separate data-quality checks.
 
 ## Current state
 
-The code is early exploration. `exploration.py` loads the JSONL file, parses each resource through `get_fhir_model_class`, and collects unknown types and pydantic `ValidationError`s instead of raising. The resource types in the sample are Binary, Condition, DocumentReference, MedicationRequest, Observation, Patient, and Procedure, plus the non-FHIR `ClinicalNote`.
+`fhir_data.py` (`FHIRData`) loads the JSONL file, parses each resource through `get_fhir_model_class`, and collects unknown types and pydantic `ValidationError`s instead of raising. `validation.py` then runs custom rules (required fields, patient references, other unresolvable references, UCUM units) and produces `ValidationIssue`s with `error`/`warning` severity. Add a rule by writing a function and appending it to `RULES`. `api.py` serves it all. The resource types in the sample are Binary, Condition, DocumentReference, MedicationRequest, Observation, Patient, and Procedure, plus the non-FHIR `ClinicalNote`.
