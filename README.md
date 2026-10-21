@@ -13,6 +13,7 @@
   - Flag when a patient ID reference doesn't exist
 - Return all resources...
   - In the specified category
+    - ...with a specified field empty
   - For the specified patient
   - For the specified provider
   - For the specified condition
@@ -31,3 +32,8 @@
 - Downsides: R4B validation is very permissive, so I'm going to have to validate the contents of the records myself in a lot of cases.
 
 ## Not implementing...
+- Repair of actual records
+
+## Assumptions
+- For time reasons I did not make validation rules for categories that exist in FHIR R4B but are not included in the data.
+- I made best guesses at what fields each resource type requires

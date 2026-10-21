@@ -180,7 +180,7 @@ def validate_resources(resources: list[Resource]) -> list[ValidationIssue]:
         for rule in RULES:
             try:
                 issues.extend(rule(data, ctx))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.exception(f"Rule {rule.__name__} failed on {data.get('resourceType')} {data.get('id')}")
                 issues.append(make_issue(data, "error", "rule_error", f"{rule.__name__} raised {type(e).__name__}: {e}"))
     return issues
