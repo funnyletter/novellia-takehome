@@ -1,39 +1,136 @@
-# Data Issues to Resolve
-- Unknown resource types: ClinicalNote isn’t a FHIR resource type, so it tests unknown-type handling. Its content ends with an off-topic joke line.
-- Unresolvable references: Eight practitioners are referenced, but no Practitioner resources exist.
-- Missing required fields: cond-nw-bad-001 has no code, so there’s no way to know what the condition is. med-fd-002 has an empty dosageInstruction array
-- Broken patient references. med-nw-003 references Patient/Noah-Wyle, which differs only in case. obs-nw-006 references Patient/nwyle, which doesn’t exist; the display says Noah Wyle. obs-kl-bad-001 has no reference at all, only display: "Katherine LaNasa".
-- Inconsistent units. Only the first two observations carry UCUM system and code. The rest have bare unit strings like "beats/minute" and "mmHg".
-- Mixed date precision. Condition onsets are date-only, while other timestamps are full ISO datetimes with Z.
-- Binary blobs that aren’t clinical. The base64 data decodes to non-clinical show quotes rather than notes. One of them duplicates the ClinicalNote’s joke. The DocumentReference → Binary indirection is the standard FHIR pattern, so resolving it is a reasonable feature even though the content here is filler.
-- Name edge cases. Brandon’s family name is two words ("Mendez Homer"), Jalen has two given names, and “LaNasa” has mixed case. Name search should be case-insensitive and token-based.
+# FHIR Data Querying API
 
-# Features to Write
-- Find all records in a given category with incomplete or bad data, offer them to user to resolve?
-  - Flag when a patient ID reference doesn't exist
-- Return all resources...
-  - In the specified category
-    - ...with a specified field empty
-  - For the specified patient
-  - For the specified provider
-  - For the specified condition
-- Upload a new dataset in json format and validate it
-- Get patient records by patient name (so, look up patient record ID by name -- maintain a dict of patient names --> IDs)
-  - Also do this for providers
-  - lowercased, token-based -- look up best way to handle this
+## API Design
+### Target Consumer
+The API is intended for use by medical providers, researchers, and other audiences who might want to aggregate and search health records from multiple sources. It prioritizes making data accessible (no data is discarded, even if it cannot be successfully parsed) and allowing consumers to identify problematic data so it can be repaired if possible.
 
-# Notes
-- Found fhir.resources package for handling fhir data -- based on pydantic, so should be easy to learn. (https://pypi.org/project/fhir.resources/)
-  - Use R4B format
+In developing the validation system I imagined a provider trying to efficiently clean up messy records, or a drug developer trying to identify participants for a clinical trial with a limited audience trying to find records a search missed due to bad data.
 
-# Decision log
-## Use fhir.resources package with R4B format
-- This gets me Pydantic models for this data for free -- I love a Pydantic model and there's no point writing one myself.
-- Downsides: R4B validation is very permissive, so I'm going to have to validate the contents of the records myself in a lot of cases.
+### Data Model
+I discovered that the data was in FHIR R4B format and used the package `fhir.resources`, which includes prebuilt Pydantic models for that data standard. This meant I did not have to build my own model format and allowed some rudimentary validation.
 
-## Not implementing...
-- Repair of actual records
+The downside of this format is that the validation is fairly permissive. I opted to create my own data validation process rather than extending the existing models' validation features to meet my needs just to keep the scope of this project more manageable.
 
-## Assumptions
-- For time reasons I did not make validation rules for categories that exist in FHIR R4B but are not included in the data.
-- I made best guesses at what fields each resource type requires
+### Bad Data Handling
+Data that can be parsed into FHIR R4B format is, even if some fields are not valid, so that they remain queryable by all available and parseable fields. Records with invalid fields are flagged, and consumers can retrieve all invalid records for a given resource type. For instance, <insert example>.
+
+Records that cannot be parsed into this format are not queryable, but the raw input data is flagged and retained. Consumers can retrieve all unparseable records via <insert endpoint>.
+
+### Extra Feature: Data Validation
+In addition to basic search endpoints I included endpoints to retrieve problematic records so that they might be repaired. This includes data that could not be imported into the FHIR R4B model -- this is stored as raw JSON and is therefore not searchable, but an endpoint surfaces it so it can be repaired.
+
+### Case sensitivity
+I don't currently have the domain knowledge to make an evidence-based decision on handling case. FHIR R4B specifies that IDs are case-sensitive, so noah-wyle and Noah-Wyle would be different IDs. However, most non-programmers do not generally do a good job of respecting case-sensitivity, so it seemed useful to be more lenient.
+
+- **Resource types** (`/resources/{resource_type}` and the `resource_type` filter) are case-insensitive. There is a small fixed set of types, so there is no ambiguity.
+- **Patient IDs** are matched exactly first, and only if that finds no patient, case-insensitively. FHIR IDs are case-sensitive, so the fallback is used only when exactly one patient matches; if two patients differ only in case and neither matches exactly, the result is a `404`. The same rule applies to the patient references inside records, so a record pointing at `Patient/Noah-Wyle` is returned for `noah-wyle` rather than being lost to a data-entry error. It is still reported as `patient_reference_case_mismatch` in `/validation-failures`, so the problem stays visible.
+- Other IDs and query parameter values (`severity`, `code`) are matched exactly.
+
+### Areas for expansion
+#### Patient Search by Name
+Patients can currently only be looked up by ID, so a consumer has to know the ID (or list `/resources/Patient`) to find someone. A name search would map names to patient IDs, for example `GET /patients?name=noah wyle`.
+
+The sample data has several name edge cases such a search would need to handle: a two-word family name (`Mendez Homer`), a patient with two given names, and mixed-case names (`LaNasa`). Matching should be case-insensitive and token-based, so that the order of the words and extra given names don't matter.
+
+#### Automated Data Repair
+For time reasons I did not investigate or attempt to implement automated repair of data. It seems very possible that many bad data fields (e.g. missing or erroneous units for dosages) could be automatically repaired.
+
+A system that proposed automatic repairs to this type of field and then required human approval to accept the repair could make this kind of data cleaning more efficient.
+
+#### Domain-Specific Data Validation
+My data validation focuses on whether data is present and formatted correctly; it does not validate things like whether a dosage is plausible or uses the correct units. For instance, 100**mg** of levothyroxine is not a plausible dosage -- it is very likely that the units are incorrect and it should be 100**mcg** of levothyroxine.
+
+I don't have the domain knowledge to design this kind of validation, so I haven't done it here. However, validation rules could be added that, for instance, called out to a separate API to validate dosages.
+
+## Running the API
+With Docker:
+
+```bash
+docker compose up --build
+```
+
+Without Docker (needs [uv](https://docs.astral.sh/uv/)):
+
+```bash
+uv sync
+uv run novellia-takehome
+```
+
+The API is at `http://localhost:8000`, with interactive docs at `/docs`. The data is read once at startup from `assignment/backend-takehome-fhir-resources.txt`. To use a different JSONL file, set `DATA_FILE` (in `docker-compose.yml` for Docker, or in your shell otherwise) and restart.
+
+## Endpoints
+
+All endpoints are `GET` and return JSON.
+
+### `GET /resources/{resource_type}`
+Returns every record of one FHIR resource type, as a list. The type is case-insensitive, so `/resources/observation` works. The types in the sample data are `Patient`, `Condition`, `Observation`, `MedicationRequest`, `Procedure`, `DocumentReference` and `Binary`. Returns an empty list if there are no records of that type, including when the type is not in the loaded data or is misspelled.
+
+```bash
+curl http://localhost:8000/resources/Procedure
+```
+
+### `GET /patients/{patient_id}/resources`
+Returns every record that references that patient through `subject`. The Patient record itself is not included; get it from `/resources/Patient`. Returns an empty list if the patient exists but has no records, and `404` if no Patient has that ID. The ID is matched exactly first, then case-insensitively if there is no exact match (see [Case sensitivity](#case-sensitivity)). A record that references `Patient/Noah-Wyle` therefore appears under `noah-wyle`, and is still flagged by `/validation-failures`.
+
+```bash
+curl http://localhost:8000/patients/noah-wyle/resources
+```
+
+### `GET /validation-failures`
+Returns everything wrong with the data, in two parts:
+
+- `parse_failures`: raw records of a known FHIR type that failed R4B model validation.
+- `issues`: problems found by this project's own rules in `validation.py`. Each issue has a `resource_type`, `resource_id`, `severity` (`error` or `warning`), a stable `code`, the `field` it concerns, and a human-readable `message`.
+
+The issues can be filtered with query parameters, which can be combined: `severity` (`error` or `warning`), `resource_type` (case-insensitive), and `code`. An invalid `severity` returns `422`.
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `missing_required_field` | error | A field the resource type needs is absent or empty (e.g. a Condition with no `code`). |
+| `missing_value` | error | An Observation has no value and no components with a value. |
+| `missing_patient_reference` | error | The record has no `subject.reference`. |
+| `invalid_patient_reference` | error | The patient reference is not of the form `Patient/<id>`. |
+| `unknown_patient` | error | The referenced patient does not exist. |
+| `patient_reference_case_mismatch` | warning | The reference matches a patient except for case. |
+| `unresolvable_reference` | warning | A non-patient reference (e.g. a Practitioner) matches no loaded resource. |
+| `missing_ucum_unit` | warning | A quantity has no UCUM system or code. |
+| `rule_error` | error | One of the rules itself failed on this record. |
+
+```bash
+# All issues
+curl http://localhost:8000/validation-failures
+
+# Only errors
+curl "http://localhost:8000/validation-failures?severity=error"
+
+# Errors on Conditions
+curl "http://localhost:8000/validation-failures?resource_type=Condition&severity=error"
+```
+
+Example response for the last request:
+
+```json
+{
+  "parse_failures": [],
+  "issues": [
+    {
+      "resource_type": "Condition",
+      "resource_id": "cond-nw-bad-001",
+      "severity": "error",
+      "code": "missing_required_field",
+      "field": "code",
+      "message": "code is missing or empty"
+    }
+  ]
+}
+```
+
+## Development Notes
+### AI Usage
+I used Claude Code to write the majority of the code for the API and to code review the parts I wrote myself. All design decisions were made by me (except for the error severity, which Claude suggested and it sounded like a great idea).
+
+Claude determined that the data was in FHIR R4B format when I gave it the data input file -- I probably wouldn't have figured that out on my own in the time available for this task, since I'm not familiar with health record data standards!
+
+Unit tests were written by hand, because I find writing unit tests is a great way to ensure I understand (and agree with) code written by AI. I did have Claude Code audit my tests to suggest edge cases I might have missed, but did not let it implement tests to ensure that there was human review of all code.
+
+This readme was written by me except for boilerplate in the endpoints section.

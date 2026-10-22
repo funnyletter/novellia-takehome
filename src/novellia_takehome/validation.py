@@ -41,6 +41,8 @@ PATIENT_REFERENCE_FIELDS = {
 
 
 class ValidationIssue(BaseModel):
+    """A single data-quality problem found in one record."""
+
     resource_type: str
     resource_id: str | None
     severity: Literal["error", "warning"]
@@ -50,9 +52,19 @@ class ValidationIssue(BaseModel):
 
 
 class ValidationContext:
-    """Lookups built once from all parsed resources, used to resolve references."""
+    """Lookups built once from all parsed resources, used to resolve references.
+
+    Attributes:
+        ids_by_type: The ids of all loaded resources, keyed by resource type.
+        patient_ids: The ids of all loaded Patient resources.
+    """
 
     def __init__(self, resources: list[Resource]):
+        """Index the ids of the given resources.
+
+        Args:
+            resources: The parsed FHIR resources.
+        """
         self.ids_by_type: dict[str, set[str]] = defaultdict(set)
         for resource in resources:
             if resource.id:
@@ -64,6 +76,18 @@ Rule = Callable[[dict, ValidationContext], list[ValidationIssue]]
 
 
 def make_issue(resource: dict, severity: str, code: str, message: str, field: str | None = None) -> ValidationIssue:
+    """Build a ValidationIssue for a resource.
+
+    Args:
+        resource: The resource's JSON form, used for its type and id.
+        severity: "error" or "warning".
+        code: A stable slug identifying the kind of problem.
+        message: A human-readable description.
+        field: The path of the offending field, if there is one.
+
+    Returns:
+        ValidationIssue: The issue.
+    """
     return ValidationIssue(
         resource_type=resource.get("resourceType", "Unknown"),
         resource_id=resource.get("id"),
@@ -75,10 +99,27 @@ def make_issue(resource: dict, severity: str, code: str, message: str, field: st
 
 
 def is_empty(value) -> bool:
+    """Check whether a field is missing or blank.
+
+    Args:
+        value: The field value.
+
+    Returns:
+        bool: True for None, an empty string, an empty list or an empty dict.
+    """
     return value is None or value in ("", [], {})
 
 
 def check_required_fields(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
+    """Flag required fields (see REQUIRED_FIELDS) that are missing or empty, and Observations with no value.
+
+    Args:
+        resource: The resource's JSON form.
+        ctx: Lookups across all loaded resources.
+
+    Returns:
+        list[ValidationIssue]: The problems found, which is empty if there are none.
+    """
     issues = []
     for field in REQUIRED_FIELDS.get(resource["resourceType"], []):
         if is_empty(resource.get(field)):
@@ -89,16 +130,43 @@ def check_required_fields(resource: dict, ctx: ValidationContext) -> list[Valida
 
 
 def has_value(part: dict) -> bool:
+    """Check whether an Observation or one of its components carries a value.
+
+    Args:
+        part: An Observation, or one entry of its `component` list.
+
+    Returns:
+        bool: True if any `value[x]` field is filled in or a `dataAbsentReason` explains its absence.
+    """
     return any(key.startswith("value") and not is_empty(v) for key, v in part.items()) or "dataAbsentReason" in part
 
 
 def observation_has_value(observation: dict) -> bool:
+    """Check whether an Observation, or any of its components, carries a value.
+
+    Args:
+        observation: The Observation's JSON form.
+
+    Returns:
+        bool: True if the Observation or at least one component has a value.
+    """
     components = observation.get("component")
     components = components if isinstance(components, list) else []
     return has_value(observation) or any(has_value(c) for c in components if isinstance(c, dict))
 
 
 def check_patient_reference(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
+    """Flag a missing, malformed, case-mismatched or nonexistent patient reference.
+
+    Only resource types listed in PATIENT_REFERENCE_FIELDS are checked.
+
+    Args:
+        resource: The resource's JSON form.
+        ctx: Lookups across all loaded resources.
+
+    Returns:
+        list[ValidationIssue]: The problems found, which is empty if there are none.
+    """
     field = PATIENT_REFERENCE_FIELDS.get(resource["resourceType"])
     if field is None:
         return []
@@ -121,7 +189,15 @@ def check_patient_reference(resource: dict, ctx: ValidationContext) -> list[Vali
 
 
 def iter_references(node, path: str = "") -> Iterator[tuple[str, str]]:
-    """Yield (path, reference) for every Reference found anywhere in the resource."""
+    """Walk a resource and find every Reference in it.
+
+    Args:
+        node: The resource, or any dict or list nested inside it.
+        path: The path to `node` from the top of the resource.
+
+    Yields:
+        tuple[str, str]: The path of the Reference and its `reference` string.
+    """
     if isinstance(node, dict):
         reference = node.get("reference")
         if isinstance(reference, str):
@@ -134,7 +210,17 @@ def iter_references(node, path: str = "") -> Iterator[tuple[str, str]]:
 
 
 def check_other_references(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
-    """Every reference except the patient link must point at a resource we actually have."""
+    """Flag references, other than the patient link, that point at a resource we don't have.
+
+    References that are contained (`#id`) or external (URLs) are skipped.
+
+    Args:
+        resource: The resource's JSON form.
+        ctx: Lookups across all loaded resources.
+
+    Returns:
+        list[ValidationIssue]: The problems found, which is empty if there are none.
+    """
     patient_field = PATIENT_REFERENCE_FIELDS.get(resource["resourceType"])
     issues = []
     for path, reference in iter_references(resource):
@@ -149,6 +235,14 @@ def check_other_references(resource: dict, ctx: ValidationContext) -> list[Valid
 
 
 def iter_quantities(observation: dict) -> Iterator[tuple[str, dict]]:
+    """Find the quantities on an Observation and on its components.
+
+    Args:
+        observation: The Observation's JSON form.
+
+    Yields:
+        tuple[str, dict]: The path of the `valueQuantity` and the quantity itself.
+    """
     if isinstance(observation.get("valueQuantity"), dict):
         yield "valueQuantity", observation["valueQuantity"]
     components = observation.get("component")
@@ -158,6 +252,15 @@ def iter_quantities(observation: dict) -> Iterator[tuple[str, dict]]:
 
 
 def check_units(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
+    """Flag Observation quantities that have no UCUM system or code.
+
+    Args:
+        resource: The resource's JSON form.
+        ctx: Lookups across all loaded resources.
+
+    Returns:
+        list[ValidationIssue]: The problems found, which is empty if there are none.
+    """
     if resource["resourceType"] != "Observation":
         return []
     issues = []
@@ -172,7 +275,16 @@ RULES: list[Rule] = [check_required_fields, check_patient_reference, check_other
 
 
 def validate_resources(resources: list[Resource]) -> list[ValidationIssue]:
-    """Run every rule on every parsed resource. A crashing rule is reported, not raised."""
+    """Run every rule in RULES on every parsed resource.
+
+    A rule that crashes is reported as a `rule_error` issue, not raised.
+
+    Args:
+        resources: The parsed FHIR resources.
+
+    Returns:
+        list[ValidationIssue]: All problems found across all resources.
+    """
     ctx = ValidationContext(resources)
     issues = []
     for resource in resources:

@@ -13,7 +13,24 @@ MISSING_RESOURCE_TYPE = "<missing>"
 
 
 class FHIRData:
+    """Loads a JSONL file of FHIR resources, parses them, and keeps track of what went wrong.
+
+    Attributes:
+        filepath: The JSONL file to load.
+        resources: Records that parsed into R4B models.
+        json_decode_failed: Lines that were not valid JSON.
+        validation_failed: Raw records of a known type that failed R4B model validation.
+        unknown_types: Resource types that are not FHIR R4B, or a placeholder for records
+            with no usable type.
+        issues: Problems found by our own data-quality rules.
+    """
+
     def __init__(self, filepath: Path):
+        """Set up empty state. Nothing is read until `parse_all_resources` is called.
+
+        Args:
+            filepath: The JSONL file to load, with one FHIR resource per line.
+        """
         self.filepath = filepath
         self._raw_data: list[dict] | None = None
         self.resources: list = []
@@ -23,13 +40,12 @@ class FHIRData:
         self.issues: list[ValidationIssue] = []
 
     def raw_data(self) -> list[dict]:
-        """Load data from the file if not already loaded. Any lines that cannot be parsed as JSON are recorded in self.json_decode_failed.
+        """Load data from the file if not already loaded.
+
+        Lines that cannot be parsed as JSON are skipped and recorded in `json_decode_failed`.
 
         Returns:
             list[dict]: The loaded data as a list of dictionaries.
-
-        Raises:
-            json.JSONDecodeError: If a line in the file cannot be parsed as JSON.
         """
         if self._raw_data is None:
             data = []
@@ -45,7 +61,18 @@ class FHIRData:
 
 
     def parse_fhir_resource(self, item) -> Resource | None:
-        """Parse a raw dict into its R4B model. Returns None for unknown types."""
+        """Parse a raw record into its R4B model.
+
+        The resourceType is trimmed before validation. Records that cannot be parsed are
+        recorded in `unknown_types` or `validation_failed` instead of raising.
+
+        Args:
+            item: One decoded JSON line. It is not guaranteed to be a dict.
+
+        Returns:
+            Resource | None: The parsed resource, or None if the type is missing or unknown
+                or the record failed model validation.
+        """
         resource_type = item.get("resourceType") if isinstance(item, dict) else None
         if not isinstance(resource_type, str) or not resource_type.strip():
             logger.warning(f"Record has no usable resourceType: {item!r:.200}")
@@ -66,7 +93,10 @@ class FHIRData:
             return None
 
     def parse_all_resources(self):
-        """Parse every raw record, then run the custom data-quality rules over the parsed resources."""
+        """Parse every raw record, then run the custom data-quality rules over the parsed resources.
+
+        Resets the parsed state first, so calling it again does not duplicate records.
+        """
         self.resources = []
         self.validation_failed = []
         self.unknown_types = set()
