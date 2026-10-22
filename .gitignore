@@ -1,3 +1,7 @@
+# AI stuff
+.claude/
+CLAUDE.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -24,6 +28,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.python-version
 MANIFEST
 
 # PyInstaller
