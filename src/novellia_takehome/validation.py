@@ -5,7 +5,7 @@ that works on the resource's JSON form. validate_resources runs them all.
 """
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Literal
 
 from fhir.resources.R4B.resource import Resource
@@ -58,7 +58,7 @@ class ValidationContext:
         patient_ids: The ids of all loaded Patient resources.
     """
 
-    def __init__(self, resources: list[Resource]):
+    def __init__(self, resources: Sequence[Resource]) -> None:
         """Index the ids of the given resources.
 
         Args:
@@ -94,7 +94,7 @@ def make_issue(resource: dict, severity: Literal["error", "warning"], code: str,
     )
 
 
-def is_empty(value) -> bool:
+def is_empty(value: object) -> bool:
     """Check whether a field is missing or blank.
 
     Args:
@@ -157,7 +157,7 @@ def observation_has_value(observation: dict) -> bool:
 
 
 def check_patient_reference(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
-    """Flag a missing, malformed, case-mismatched or nonexistent patient reference.
+    """Flag a missing, malformed or nonexistent patient reference.
 
     Only resource types listed in PATIENT_REFERENCE_FIELDS are checked.
 
@@ -183,13 +183,10 @@ def check_patient_reference(resource: dict, ctx: ValidationContext) -> list[Vali
     patient_id = reference.removeprefix("Patient/")
     if patient_id in ctx.patient_ids:
         return []
-    matches = [p for p in ctx.patient_ids if p.lower() == patient_id.lower()]
-    if matches:
-        return [make_issue(resource, "warning", "patient_reference_case_mismatch", f"{reference!r} differs only in case from Patient/{matches[0]}", path)]
     return [make_issue(resource, "error", "unknown_patient", f"{reference!r} does not match any Patient", path)]
 
 
-def iter_references(node, path: str = "") -> Iterator[tuple[str, str]]:
+def iter_references(node: object, path: str = "") -> Iterator[tuple[str, str]]:
     """Walk a resource and find every Reference in it.
 
     Args:
@@ -213,8 +210,6 @@ def iter_references(node, path: str = "") -> Iterator[tuple[str, str]]:
 def check_other_references(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
     """Flag references, other than the patient link, that point at a resource we don't have.
 
-    References that are contained (`#id`) or external (URLs) are skipped.
-
     Args:
         resource: The resource's JSON form.
         ctx: Lookups across all loaded resources.
@@ -227,8 +222,6 @@ def check_other_references(resource: dict, ctx: ValidationContext) -> list[Valid
     for path, reference in iter_references(resource):
         if path == patient_field:
             continue  # handled by check_patient_reference
-        if reference.startswith(("#", "http://", "https://", "urn:")):
-            continue  # contained or external, not something we can look up
         resource_type, _, resource_id = reference.partition("/")
         if resource_id.split("/")[0] not in ctx.ids_by_type.get(resource_type, set()):
             issues.append(make_issue(resource, "warning", "unresolvable_reference", f"{reference!r} does not match any loaded resource", path))
@@ -244,11 +237,10 @@ def iter_quantities(observation: dict) -> Iterator[tuple[str, dict]]:
     Yields:
         tuple[str, dict]: The path of the `valueQuantity` and the quantity itself.
     """
-    if isinstance(observation.get("valueQuantity"), dict):
+    if "valueQuantity" in observation:
         yield "valueQuantity", observation["valueQuantity"]
-    components = observation.get("component")
-    for i, component in enumerate(components if isinstance(components, list) else []):
-        if isinstance(component, dict) and isinstance(component.get("valueQuantity"), dict):
+    for i, component in enumerate(observation.get("component", [])):
+        if "valueQuantity" in component:
             yield f"component[{i}].valueQuantity", component["valueQuantity"]
 
 
@@ -272,7 +264,7 @@ def check_units(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]
     return issues
 
 
-def validate_resources(resources: list[Resource]) -> list[ValidationIssue]:
+def validate_resources(resources: Sequence[Resource]) -> list[ValidationIssue]:
     """Run every check on every parsed resource.
 
     Args:

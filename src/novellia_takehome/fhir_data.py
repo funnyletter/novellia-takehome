@@ -1,12 +1,15 @@
 import json
+import logging
 from pathlib import Path
+from typing import Any, cast
 
 from fhir.resources.R4B import get_fhir_model_class
 from fhir.resources.R4B.resource import Resource
-from loguru import logger
 from pydantic import ValidationError
 
 from novellia_takehome.validation import ValidationIssue, validate_resources
+
+logger = logging.getLogger(__name__)
 
 # Placeholder recorded in unknown_types for records with no usable resourceType.
 MISSING_RESOURCE_TYPE = "<missing>"
@@ -25,7 +28,7 @@ class FHIRData:
         issues: Problems found by our own data-quality rules.
     """
 
-    def __init__(self, filepath: Path):
+    def __init__(self, filepath: Path) -> None:
         """Set up empty state. Nothing is read until `parse_all_resources` is called.
 
         Args:
@@ -33,7 +36,7 @@ class FHIRData:
         """
         self.filepath = filepath
         self._raw_data: list[dict] | None = None
-        self.resources: list = []
+        self.resources: list[Resource] = []
         self.json_decode_failed: list[str] = []
         self.validation_failed: list[dict] = []
         self.unknown_types: set[str] = set()
@@ -54,13 +57,13 @@ class FHIRData:
                     try:
                         data.append(json.loads(line))
                     except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse line: {line.strip()}")
+                        logger.warning("Failed to parse line: %s", line.strip())
                         self.json_decode_failed.append(line.strip())
             self._raw_data = data
         return self._raw_data
 
 
-    def parse_fhir_resource(self, item) -> Resource | None:
+    def parse_fhir_resource(self, item: Any) -> Resource | None:
         """Parse a raw record into its R4B model.
 
         The resourceType is trimmed before validation. Records that cannot be parsed are
@@ -75,24 +78,24 @@ class FHIRData:
         """
         resource_type = item.get("resourceType") if isinstance(item, dict) else None
         if not isinstance(resource_type, str) or not resource_type.strip():
-            logger.warning(f"Record has no usable resourceType: {item!r:.200}")
+            logger.warning("Record has no usable resourceType: %.200r", item)
             self.unknown_types.add(MISSING_RESOURCE_TYPE)
             return None
         resource_type = resource_type.strip()
         try:
             model = get_fhir_model_class(resource_type)
         except ValueError:
-            logger.warning(f"Unknown resource type: {resource_type!r} (id={item.get('id')})")
+            logger.warning("Unknown resource type: %r (id=%s)", resource_type, item.get("id"))
             self.unknown_types.add(resource_type)
             return None
         try:
-            return model.model_validate({**item, "resourceType": resource_type})
+            return cast(Resource, model.model_validate({**item, "resourceType": resource_type}))
         except ValidationError as e:
-            logger.info(f"Failed to parse {resource_type} {item.get('id')}: {e}")
+            logger.info("Failed to parse %s %s: %s", resource_type, item.get("id"), e)
             self.validation_failed.append(item)
             return None
 
-    def parse_all_resources(self):
+    def parse_all_resources(self) -> None:
         """Parse every raw record, then run the custom data-quality rules over the parsed resources.
 
         Resets the parsed state first, so calling it again does not duplicate records.

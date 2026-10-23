@@ -1,3 +1,4 @@
+import logging
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     Yields:
         None: Control to the running application.
     """
+    logging.basicConfig(level=logging.INFO)
     fhir_data = FHIRData(Path(os.environ.get("DATA_FILE", DEFAULT_DATA_FILE)))
     fhir_data.parse_all_resources()
     app.state.fhir_data = fhir_data

@@ -1,9 +1,12 @@
+from typing import cast
 from unittest.mock import patch
 
 import pytest
+from fhir.resources.R4B import get_fhir_model_class
 from fhir.resources.R4B.observation import Observation
 from fhir.resources.R4B.patient import Patient
 from fhir.resources.R4B.practitioner import Practitioner
+from fhir.resources.R4B.resource import Resource
 
 from src.novellia_takehome.validation import (
     ValidationContext,
@@ -24,6 +27,7 @@ from src.test.unit.params import (
     HAS_VALUE_PARAMS,
     OBSERVATION_VALUE_PARAMS,
     REQUIRED_FIELDS_PARAMS,
+    VALIDATE_RESOURCES_PARAMS,
 )
 
 
@@ -39,7 +43,7 @@ def ctx_fixture():
                 "birthDate": "1988-03-12",
                 "active": True
             },
-            
+
         ),
         Practitioner.model_validate(
             {
@@ -147,7 +151,7 @@ def observation_fixture():
     })
 
 
-def test_validation_issue_happy_path():
+def test_validation_issue_happy_path() -> None:
     issue = ValidationIssue(
         resource_type="Patient",
         resource_id="123",
@@ -179,7 +183,7 @@ def test_validation_issue_happy_path():
     assert issue2.message == "The value is invalid."
 
 
-def test_validation_issue_no_resource_id():
+def test_validation_issue_no_resource_id() -> None:
     issue = ValidationIssue(
         resource_type="Patient",
         resource_id=None,
@@ -196,35 +200,35 @@ def test_validation_issue_no_resource_id():
     assert issue.message == "The field 'name' is required."
 
 
-def test_validation_issue_bad_severity():
+def test_validation_issue_bad_severity() -> None:
     with pytest.raises(ValueError):
         ValidationIssue(
             resource_type="Patient",
             resource_id="123",
-            severity="critical",  # Invalid severity # type: ignore
+            severity="critical",  # type: ignore[arg-type]
             code="missing_field",
             field="name",
             message="The field 'name' is required."
         )
 
 
-def test_validation_context_nonpatient():
+def test_validation_context_nonpatient() -> None:
     observations = [Observation.model_validate(p["observation"]) for p in OBSERVATION_VALUE_PARAMS]
     ctx = ValidationContext(observations)
     assert ctx.ids_by_type["Observation"] == {o.id for o in observations}
     assert ctx.patient_ids == set()
 
 
-def test_validation_context_patient():
+def test_validation_context_patient() -> None:
     patient = Patient.model_validate({"resourceType": "Patient", "id": "patient-001"})
     observations = [Observation.model_validate(p["observation"]) for p in OBSERVATION_VALUE_PARAMS]
-    ctx = ValidationContext([patient] + observations)
+    ctx = ValidationContext([patient, *observations])
     assert ctx.ids_by_type["Observation"] == {o.id for o in observations}
     assert ctx.ids_by_type["Patient"] == {patient.id}
     assert ctx.patient_ids == {patient.id}
 
 
-def test_make_issue():
+def test_make_issue() -> None:
     resource = {
         "resourceType": "Observation",
         "id": "obs-example-004",
@@ -242,7 +246,7 @@ def test_make_issue():
     assert issue.message == "The value is invalid."
 
 
-def test_is_empty():
+def test_is_empty() -> None:
     assert is_empty(None)
     assert is_empty("")
     assert is_empty([])
@@ -255,39 +259,39 @@ def test_is_empty():
 
 
 @pytest.mark.parametrize("resource, expected", REQUIRED_FIELDS_PARAMS)
-def test_required_fields(ctx_fixture, resource, expected):
+def test_required_fields(ctx_fixture, resource, expected) -> None:
     actual = check_required_fields(resource, ctx_fixture)
     assert actual == [ValidationIssue(**x) for x in expected]
 
 
 @pytest.mark.parametrize("value_param, expected", HAS_VALUE_PARAMS)
-def test_has_value(value_param, expected):
+def test_has_value(value_param, expected) -> None:
     assert has_value(value_param) == expected
 
 
 @pytest.mark.parametrize("observation_param", OBSERVATION_VALUE_PARAMS)
-def test_observation_has_value(observation_param):
+def test_observation_has_value(observation_param) -> None:
     observation = Observation.model_validate(observation_param["observation"]).model_dump()
     expected = observation_param["expected"]
     assert observation_has_value(observation) == expected
 
 
-def test_check_patient_reference_happy_path(ctx_fixture, resource_fixture):
+def test_check_patient_reference_happy_path(ctx_fixture, resource_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_references") as mock_iter_references:
         mock_iter_references.return_value = [("subject", "Patient/tracy-ifeachor")]
         actual = check_patient_reference(resource_fixture, ctx_fixture)
         assert actual == []
 
 
-def test_check_patient_reference_no_references(ctx_fixture, resource_fixture):
+def test_check_patient_reference_no_references(ctx_fixture, resource_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_references") as mock_iter_references:
         mock_iter_references.return_value = []
         actual = check_patient_reference(resource_fixture, ctx_fixture)
-        expected = []
+        expected: list[ValidationIssue] = []
         assert actual == expected
 
 
-def test_check_patient_reference_patient_not_found(ctx_fixture):
+def test_check_patient_reference_patient_not_found(ctx_fixture) -> None:
     resource = {
         "resourceType": "MedicationRequest",
         "id": "med-ti-001",
@@ -331,7 +335,175 @@ def test_check_patient_reference_patient_not_found(ctx_fixture):
     assert actual == expected
 
 
-def test_iter_references(resource_fixture):
+def test_check_patient_reference_null_resource_type(ctx_fixture) -> None:
+    resource = {
+        "resourceType": None,
+        "id": "med-ti-001",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+            "coding": [
+                {
+                    "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                    "code": "1049502",
+                    "display": "Carvedilol 12.5 MG"
+                }
+            ],
+            "text": "Carvedilol 12.5mg"
+        },
+        "subject": {
+            "reference": "Patient/tracy-ifeachor",
+            "display": "Tracy Ifeachor"
+        },
+        "authoredOn": "2021-03-01T08:00:00Z",
+        "requester": {
+            "reference": "Practitioner/dr-al-hashimi"
+        },
+        "dosageInstruction": [
+            {
+                "text": "Take twice daily with food"
+            }
+        ]
+    }
+    actual = check_patient_reference(resource, ctx_fixture)
+    expected: list[ValidationIssue] = []
+    assert actual == expected
+
+
+def test_check_patient_reference_null_reference_with_display(ctx_fixture) -> None:
+    resource = {
+        "resourceType": "MedicationRequest",
+        "id": "med-ti-001",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+            "coding": [
+                {
+                    "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                    "code": "1049502",
+                    "display": "Carvedilol 12.5 MG"
+                }
+            ],
+            "text": "Carvedilol 12.5mg"
+        },
+        "subject": {
+            "reference": None,
+            "display": "Tracy Ifeachor"
+        },
+        "authoredOn": "2021-03-01T08:00:00Z",
+        "requester": {
+            "reference": "Practitioner/dr-al-hashimi"
+        },
+        "dosageInstruction": [
+            {
+                "text": "Take twice daily with food"
+            }
+        ]
+    }
+    actual = check_patient_reference(resource, ctx_fixture)
+    expected = [
+        ValidationIssue(
+            resource_type="MedicationRequest",
+            resource_id="med-ti-001",
+            severity="error",
+            code="missing_patient_reference",
+            field="subject.reference",
+            message="No patient reference (display is 'Tracy Ifeachor')"
+        )
+    ]
+    assert actual == expected
+
+
+def test_check_patient_reference_null_reference(ctx_fixture) -> None:
+    resource = {
+        "resourceType": "MedicationRequest",
+        "id": "med-ti-001",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+            "coding": [
+                {
+                    "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                    "code": "1049502",
+                    "display": "Carvedilol 12.5 MG"
+                }
+            ],
+            "text": "Carvedilol 12.5mg"
+        },
+        "subject": {
+            "reference": None,
+            "display": None
+        },
+        "authoredOn": "2021-03-01T08:00:00Z",
+        "requester": {
+            "reference": "Practitioner/dr-al-hashimi"
+        },
+        "dosageInstruction": [
+            {
+                "text": "Take twice daily with food"
+            }
+        ]
+    }
+    actual = check_patient_reference(resource, ctx_fixture)
+    expected = [
+        ValidationIssue(
+            resource_type="MedicationRequest",
+            resource_id="med-ti-001",
+            severity="error",
+            code="missing_patient_reference",
+            field="subject.reference",
+            message="No patient reference"
+        )
+    ]
+    assert actual == expected
+
+
+
+def test_check_patient_reference_invalid_reference(ctx_fixture) -> None:
+    resource = {
+        "resourceType": "MedicationRequest",
+        "id": "med-ti-001",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+            "coding": [
+                {
+                    "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                    "code": "1049502",
+                    "display": "Carvedilol 12.5 MG"
+                }
+            ],
+            "text": "Carvedilol 12.5mg"
+        },
+        "subject": {
+            "reference": "bad patient reference",
+            "display": "Tracy Ifeachor"
+        },
+        "authoredOn": "2021-03-01T08:00:00Z",
+        "requester": {
+            "reference": "Practitioner/dr-al-hashimi"
+        },
+        "dosageInstruction": [
+            {
+                "text": "Take twice daily with food"
+            }
+        ]
+    }
+    actual = check_patient_reference(resource, ctx_fixture)
+    expected = [
+        ValidationIssue(
+            resource_type="MedicationRequest",
+            resource_id="med-ti-001",
+            severity="error",
+            code="invalid_patient_reference",
+            field="subject.reference",
+            message="'bad patient reference' is not of the form Patient/<id>"
+        )
+    ]
+    assert actual == expected
+
+
+def test_iter_references(resource_fixture) -> None:
     references = list(iter_references(resource_fixture))
     expected_references = [
         ("subject", "Patient/tracy-ifeachor"),
@@ -340,7 +512,7 @@ def test_iter_references(resource_fixture):
     assert references == expected_references
 
 
-def test_iter_references_no_references():
+def test_iter_references_no_references() -> None:
     resource = {
         "resourceType": "MedicationRequest",
         "id": "med-ti-001",
@@ -366,19 +538,19 @@ def test_iter_references_no_references():
         ]
     }
     references = list(iter_references(resource))
-    expected_references = []
+    expected_references: list[tuple[str, str]] = []
     assert references == expected_references
 
 
-def test_check_other_references_happy_path(ctx_fixture, resource_fixture):
+def test_check_other_references_happy_path(ctx_fixture, resource_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_references") as mock_iter_references:
         mock_iter_references.return_value = [("subject", "Patient/test-patient"), ("requester", "Practitioner/dr-mohan")]
         actual = check_other_references(resource_fixture, ctx_fixture)
-        expected = []
+        expected: list[ValidationIssue] = []
         assert actual == expected
 
 
-def test_check_other_references_missing_practitioner(ctx_fixture, resource_fixture_bad_practitioner):
+def test_check_other_references_missing_practitioner(ctx_fixture, resource_fixture_bad_practitioner) -> None:
     with patch("src.novellia_takehome.validation.iter_references") as mock_iter_references:
         mock_iter_references.return_value = [("subject", "Patient/test-patient"), ("requester", "Practitioner/dr-al-hashimi")]
         actual = check_other_references(resource_fixture_bad_practitioner, ctx_fixture)
@@ -395,15 +567,15 @@ def test_check_other_references_missing_practitioner(ctx_fixture, resource_fixtu
         assert actual == expected
 
 
-def test_check_other_references_no_references(ctx_fixture, resource_fixture):
+def test_check_other_references_no_references(ctx_fixture, resource_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_references") as mock_iter_references:
         mock_iter_references.return_value = []
         actual = check_other_references(resource_fixture, ctx_fixture)
-        expected = []
+        expected: list[ValidationIssue] = []
         assert actual == expected
 
 
-def test_iter_quantities(observation_fixture):
+def test_iter_quantities(observation_fixture) -> None:
     actual = list(iter_quantities(observation_fixture.model_dump()))
     expected = [
         ("valueQuantity", {
@@ -415,13 +587,38 @@ def test_iter_quantities(observation_fixture):
     ]
     assert actual == expected
 
-def test_iter_quantities_empty():
-    actual = list(iter_quantities({}))
-    expected = []
+def test_iter_quantities_with_components() -> None:
+    observation = {
+        "resourceType": "Observation",
+        "id": "obs-example-001",
+        "status": "final",
+        "code": {"text": "Blood Pressure"},
+        "component": [
+            {
+                "code": {"text": "Systolic blood pressure"},
+                "valueQuantity": {"value": 145, "unit": "mmHg"}
+            },
+            {
+                "code": {"text": "Diastolic blood pressure"},
+                "valueQuantity": {"value": 92, "unit": "mmHg"}
+            }
+        ]
+    }
+    actual = list(iter_quantities(observation))
+    expected = [
+        ("component[0].valueQuantity", {"value": 145, "unit": "mmHg"}),
+        ("component[1].valueQuantity", {"value": 92, "unit": "mmHg"})
+    ]
     assert actual == expected
 
 
-def test_iter_quantities_empty_value():
+def test_iter_quantities_empty() -> None:
+    actual = list(iter_quantities({}))
+    expected: list[tuple[str, dict]] = []
+    assert actual == expected
+
+
+def test_iter_quantities_empty_value() -> None:
     observation = {
         "resourceType": "Observation",
         "id": "obs-001",
@@ -444,11 +641,11 @@ def test_iter_quantities_empty_value():
         "valueQuantity": {}
     }
     actual = list(iter_quantities(observation))
-    expected = [("valueQuantity", {})]
+    expected: list[tuple[str, dict]] = [("valueQuantity", {})]
     assert actual == expected
 
 
-def test_iter_quantities_missing_value():
+def test_iter_quantities_missing_value() -> None:
     observation = {
         "resourceType": "Observation",
         "id": "obs-001",
@@ -470,11 +667,11 @@ def test_iter_quantities_missing_value():
         "effectiveDateTime": "2021-03-01T08:00:00Z"
     }
     actual = list(iter_quantities(observation))
-    expected = []
+    expected: list[tuple[str, dict]] = []
     assert actual == expected
 
 
-def test_check_units_happy_path(observation_fixture, ctx_fixture):
+def test_check_units_happy_path(observation_fixture, ctx_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_quantities") as mock_iter_quantities:
         mock_iter_quantities.return_value = [("valueQuantity", {
             "value": 74,
@@ -483,11 +680,11 @@ def test_check_units_happy_path(observation_fixture, ctx_fixture):
             "code": "kg"
         })]
         actual = check_units(observation_fixture.model_dump(), ctx_fixture)
-        expected = []
+        expected: list[ValidationIssue] = []
         assert actual == expected
 
 
-def test_check_units_missing_code(observation_fixture, ctx_fixture):
+def test_check_units_missing_code(observation_fixture, ctx_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_quantities") as mock_iter_quantities:
         mock_iter_quantities.return_value = [("valueQuantity", {
             "value": 74,
@@ -500,7 +697,7 @@ def test_check_units_missing_code(observation_fixture, ctx_fixture):
                 resource_type="Observation",
                 resource_id="obs-001",
                 severity="warning",
-                code="missing_ucum_unit", 
+                code="missing_ucum_unit",
                 message="Unit 'kg' has no UCUM system/code",
                 field="valueQuantity"
             )
@@ -508,7 +705,7 @@ def test_check_units_missing_code(observation_fixture, ctx_fixture):
         assert actual == expected
 
 
-def test_check_units_empty_code(observation_fixture, ctx_fixture):
+def test_check_units_empty_code(observation_fixture, ctx_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_quantities") as mock_iter_quantities:
         mock_iter_quantities.return_value = [("valueQuantity", {
             "value": 74,
@@ -522,7 +719,7 @@ def test_check_units_empty_code(observation_fixture, ctx_fixture):
                 resource_type="Observation",
                 resource_id="obs-001",
                 severity="warning",
-                code="missing_ucum_unit", 
+                code="missing_ucum_unit",
                 message="Unit 'kg' has no UCUM system/code",
                 field="valueQuantity"
             )
@@ -530,16 +727,22 @@ def test_check_units_empty_code(observation_fixture, ctx_fixture):
         assert actual == expected
 
 
-def test_check_units_no_units(observation_fixture, ctx_fixture):
+def test_check_units_no_units(observation_fixture, ctx_fixture) -> None:
     with patch("src.novellia_takehome.validation.iter_quantities") as mock_iter_quantities:
         mock_iter_quantities.return_value = []
         actual = check_units(observation_fixture.model_dump(), ctx_fixture)
-        expected = []
+        expected: list[ValidationIssue] = []
         assert actual == expected
 
 
-def test_validate_resources():
-    # actual = validate_resources(resource)
-    # expected = [ValidationIssue(**x) for x in issue]
-    # assert actual == expected
-    pass
+def test_check_units_not_observation(resource_fixture, ctx_fixture) -> None:
+    actual = check_units(resource_fixture, ctx_fixture)
+    expected: list[ValidationIssue] = []
+    assert actual == expected
+
+
+@pytest.mark.parametrize("resources, expected", VALIDATE_RESOURCES_PARAMS)
+def test_validate_resources(resources, expected) -> None:
+    parsed = [cast(Resource, get_fhir_model_class(r["resourceType"]).model_validate(r)) for r in resources]
+    actual = validate_resources(parsed)
+    assert actual == [ValidationIssue(**x) for x in expected]

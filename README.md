@@ -23,7 +23,7 @@ In addition to basic search endpoints I included endpoints to retrieve problemat
 FHIR R4B specifies that IDs are case-sensitive, so noah-wyle and Noah-Wyle are different IDs, and the API treats them that way.
 
 - **Resource types** (`/resources/{resource_type}` and the `resource_type` filter) are case-insensitive. There is a small fixed set of types, so there is no ambiguity.
-- **Patient IDs** are matched exactly. A record that references `Patient/Noah-Wyle` is not returned for `noah-wyle`, but it is flagged as `patient_reference_case_mismatch` in `/validation-failures` so it can be repaired.
+- **Patient IDs** are matched exactly. A record that references `Patient/Noah-Wyle` is not returned for `noah-wyle`, and is flagged as `unknown_patient` in `/validation-failures`.
 - Other IDs and query parameter values (`severity`, `code`) are matched exactly.
 
 ### Areas for expansion
@@ -70,7 +70,7 @@ curl http://localhost:8000/resources/Procedure
 ```
 
 ### `GET /patients/{patient_id}/resources`
-Returns every record that references that patient through `subject`. The Patient record itself is not included; get it from `/resources/Patient`. Returns an empty list if the patient exists but has no records, and `404` if no Patient has that ID. The ID is matched exactly (see [Case sensitivity](#case-sensitivity)). A record that references `Patient/Noah-Wyle` does not appear under `noah-wyle`, but is flagged by `/validation-failures`.
+Returns every record that references that patient through `subject`. The Patient record itself is not included; get it from `/resources/Patient`. Returns an empty list if the patient exists but has no records, and `404` if no Patient has that ID. The ID is matched exactly (see [Case sensitivity](#case-sensitivity)). A record that references `Patient/Noah-Wyle` does not appear under `noah-wyle`, but is flagged as `unknown_patient` by `/validation-failures`.
 
 ```bash
 curl http://localhost:8000/patients/noah-wyle/resources
@@ -91,7 +91,6 @@ The issues can be filtered with query parameters, which can be combined: `severi
 | `missing_patient_reference` | error | The record has no `subject.reference`. |
 | `invalid_patient_reference` | error | The patient reference is not of the form `Patient/<id>`. |
 | `unknown_patient` | error | The referenced patient does not exist. |
-| `patient_reference_case_mismatch` | warning | The reference matches a patient except for case. |
 | `unresolvable_reference` | warning | A non-patient reference (e.g. a Practitioner) matches no loaded resource. |
 | `missing_ucum_unit` | warning | A quantity has no UCUM system or code. |
 

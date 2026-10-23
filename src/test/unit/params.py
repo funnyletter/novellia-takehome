@@ -612,3 +612,99 @@ HAS_VALUE_PARAMS = [
         True
     ),
 ]
+
+VALIDATE_RESOURCES_PARAMS = [
+    (
+        # A lone Patient: nothing to flag
+        [
+            {
+                "resourceType": "Patient",
+                "id": "bare-patient"
+            }
+        ],
+        []
+    ),
+    (
+        # Valid Observation whose patient and practitioner are both in the data
+        [
+            {"resourceType": "Patient", "id": "noah-wyle"},
+            {"resourceType": "Practitioner", "id": "dr-mohan"},
+            {
+                "resourceType": "Observation",
+                "id": "obs-good",
+                "status": "final",
+                "code": {"text": "Weight"},
+                "subject": {"reference": "Patient/noah-wyle"},
+                "performer": [{"reference": "Practitioner/dr-mohan"}],
+                "valueQuantity": {
+                    "value": 88,
+                    "unit": "kg",
+                    "system": "http://unitsofmeasure.org",
+                    "code": "kg"
+                }
+            }
+        ],
+        []
+    ),
+    (
+        # Problems across several resources, reported in resource order, then in check order
+        [
+            {"resourceType": "Patient", "id": "noah-wyle"},
+            {
+                # No code; recorder is not in the data
+                "resourceType": "Condition",
+                "id": "cond-bad",
+                "subject": {"reference": "Patient/noah-wyle"},
+                "recorder": {"reference": "Practitioner/dr-robinavitch"}
+            },
+            {
+                # Patient does not exist; unit has no UCUM system/code
+                "resourceType": "Observation",
+                "id": "obs-bad",
+                "status": "final",
+                "code": {"text": "Weight"},
+                "subject": {"reference": "Patient/nwyle"},
+                "valueQuantity": {"value": 88, "unit": "kg"}
+            }
+        ],
+        [
+            {
+                "resource_type": "Condition",
+                "resource_id": "cond-bad",
+                "severity": "error",
+                "code": "missing_required_field",
+                "field": "code",
+                "message": "code is missing or empty"
+            },
+            {
+                "resource_type": "Condition",
+                "resource_id": "cond-bad",
+                "severity": "warning",
+                "code": "unresolvable_reference",
+                "field": "recorder",
+                "message": "'Practitioner/dr-robinavitch' does not match any loaded resource"
+            },
+            {
+                "resource_type": "Observation",
+                "resource_id": "obs-bad",
+                "severity": "error",
+                "code": "unknown_patient",
+                "field": "subject.reference",
+                "message": "'Patient/nwyle' does not match any Patient"
+            },
+            {
+                "resource_type": "Observation",
+                "resource_id": "obs-bad",
+                "severity": "warning",
+                "code": "missing_ucum_unit",
+                "field": "valueQuantity",
+                "message": "Unit 'kg' has no UCUM system/code"
+            }
+        ]
+    ),
+    (
+        # No resources (no problems)
+        [],
+        []
+    )
+]
