@@ -6,7 +6,7 @@ import pytest
 from fhir.resources.R4B.patient import Patient
 from fhir.resources.R4B.resource import Resource
 
-from src.novellia_takehome.fhir_data import MISSING_RESOURCE_TYPE, FHIRData
+from src.novellia_takehome.fhir_data import MISSING_RESOURCE_TYPE, FHIRData, DataFileError
 
 
 @pytest.fixture
@@ -48,6 +48,15 @@ def test_raw_data_empty_file(write_jsonl) -> None:
     actual = list(data.raw_data())
     expected: list[dict] = []
     assert actual == expected
+
+
+def test_raw_data_missing_file(caplog) -> None:
+    path = Path("nothing_here.jsonl")
+    data = FHIRData(path)
+
+    with pytest.raises(DataFileError):
+        data.raw_data()
+        assert "Cannot read data file 'nothing_here.jsonl': No such file or directory. Check the DATA_FILE setting." in caplog.text
 
 
 def test_parse_fhir_resource_happy_path() -> None:

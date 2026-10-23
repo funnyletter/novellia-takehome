@@ -93,6 +93,7 @@ The issues can be filtered with query parameters, which can be combined: `severi
 | `unknown_patient` | error | The referenced patient does not exist. |
 | `unresolvable_reference` | warning | A non-patient reference (e.g. a Practitioner) matches no loaded resource. |
 | `missing_ucum_unit` | warning | A quantity has no UCUM system or code. |
+| `duplicate_id` | error | Another resource of the same type has the same `id`. Every copy is flagged. |
 
 ```bash
 # All issues

@@ -11,6 +11,11 @@ from novellia_takehome.validation import ValidationIssue, validate_resources
 
 logger = logging.getLogger(__name__)
 
+
+class DataFileError(Exception):
+    """The data file could not be opened or read."""
+
+
 # Placeholder recorded in unknown_types for records with no usable resourceType.
 MISSING_RESOURCE_TYPE = "<missing>"
 
@@ -45,20 +50,29 @@ class FHIRData:
     def raw_data(self) -> list[dict]:
         """Load data from the file if not already loaded.
 
-        Lines that cannot be parsed as JSON are skipped and recorded in `json_decode_failed`.
+        Blank lines are ignored. Lines that cannot be parsed as JSON are skipped and recorded
+        in `json_decode_failed`.
 
         Returns:
             list[dict]: The loaded data as a list of dictionaries.
+
+        Raises:
+            DataFileError: If the file does not exist or cannot be read.
         """
         if self._raw_data is None:
             data = []
-            with open(self.filepath) as f:
-                for line in f:
-                    try:
-                        data.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        logger.warning("Failed to parse line: %s", line.strip())
-                        self.json_decode_failed.append(line.strip())
+            try:
+                with open(self.filepath) as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            data.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse line: %s", line.strip())
+                            self.json_decode_failed.append(line.strip())
+            except OSError as e:
+                raise DataFileError(f"Cannot read data file {str(self.filepath)!r}: {e.strerror}. Check the DATA_FILE setting.") from e
             self._raw_data = data
         return self._raw_data
 

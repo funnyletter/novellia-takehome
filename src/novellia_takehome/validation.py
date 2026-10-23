@@ -4,7 +4,7 @@ Each check is a function `(resource: dict, ctx: ValidationContext) -> list[Valid
 that works on the resource's JSON form. validate_resources runs them all.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from typing import Literal
 
@@ -56,6 +56,7 @@ class ValidationContext:
     Attributes:
         ids_by_type: The ids of all loaded resources, keyed by resource type.
         patient_ids: The ids of all loaded Patient resources.
+        id_counts: How many loaded resources have each (resource type, id) pair.
     """
 
     def __init__(self, resources: Sequence[Resource]) -> None:
@@ -65,9 +66,11 @@ class ValidationContext:
             resources: The parsed FHIR resources.
         """
         self.ids_by_type: dict[str, set[str]] = defaultdict(set)
+        self.id_counts: Counter[tuple[str, str]] = Counter()
         for resource in resources:
             if resource.id:
                 self.ids_by_type[resource.get_resource_type()].add(resource.id)
+                self.id_counts[(resource.get_resource_type(), resource.id)] += 1
         self.patient_ids = self.ids_by_type["Patient"]
 
 
@@ -264,6 +267,27 @@ def check_units(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]
     return issues
 
 
+def check_duplicate_ids(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]:
+    """Flag a resource whose id is shared with another resource of the same type.
+
+    Every copy is flagged, since there is no telling which one is correct.
+
+    Args:
+        resource: The resource's JSON form.
+        ctx: Lookups across all loaded resources.
+
+    Returns:
+        list[ValidationIssue]: The problems found, which is empty if there are none.
+    """
+    resource_type, resource_id = resource.get("resourceType"), resource.get("id")
+    if not resource_type or not resource_id:
+        return []
+    count = ctx.id_counts[(resource_type, resource_id)]
+    if count > 1:
+        return [make_issue(resource, "error", "duplicate_id", f"id {resource_id!r} is used by {count} {resource_type} resources", "id")]
+    return []
+
+
 def validate_resources(resources: Sequence[Resource]) -> list[ValidationIssue]:
     """Run every check on every parsed resource.
 
@@ -277,6 +301,6 @@ def validate_resources(resources: Sequence[Resource]) -> list[ValidationIssue]:
     issues = []
     for resource in resources:
         data = resource.model_dump(mode="json", exclude_none=True)
-        for check in (check_required_fields, check_patient_reference, check_other_references, check_units):
+        for check in (check_required_fields, check_patient_reference, check_other_references, check_units, check_duplicate_ids):
             issues.extend(check(data, ctx))
     return issues

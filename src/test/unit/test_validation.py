@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import cast
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from fhir.resources.R4B.resource import Resource
 from src.novellia_takehome.validation import (
     ValidationContext,
     ValidationIssue,
+    check_duplicate_ids,
     check_other_references,
     check_patient_reference,
     check_required_fields,
@@ -217,15 +219,19 @@ def test_validation_context_nonpatient() -> None:
     ctx = ValidationContext(observations)
     assert ctx.ids_by_type["Observation"] == {o.id for o in observations}
     assert ctx.patient_ids == set()
+    assert ctx.id_counts == Counter(('Observation', o.id) for o in observations)
 
 
 def test_validation_context_patient() -> None:
     patient = Patient.model_validate({"resourceType": "Patient", "id": "patient-001"})
     observations = [Observation.model_validate(p["observation"]) for p in OBSERVATION_VALUE_PARAMS]
     ctx = ValidationContext([patient, *observations])
+
+    expected_counts = Counter([('Observation', o.id) for o in observations] + [('Patient', patient.id)])
     assert ctx.ids_by_type["Observation"] == {o.id for o in observations}
     assert ctx.ids_by_type["Patient"] == {patient.id}
     assert ctx.patient_ids == {patient.id}
+    assert ctx.id_counts == expected_counts
 
 
 def test_make_issue() -> None:
@@ -746,3 +752,36 @@ def test_validate_resources(resources, expected) -> None:
     parsed = [cast(Resource, get_fhir_model_class(r["resourceType"]).model_validate(r)) for r in resources]
     actual = validate_resources(parsed)
     assert actual == [ValidationIssue(**x) for x in expected]
+
+
+def test_check_duplicate_ids(ctx_fixture):
+    resource = {"resourceType": "Patient", "id": "p1"}
+    ctx_fixture.id_counts = Counter([("Patient", "p1"), ("Patient", "p1")])
+    actual = check_duplicate_ids(resource, ctx_fixture)
+    expected: list[ValidationIssue] = [
+        ValidationIssue(
+            resource_type="Patient",
+            resource_id="p1",
+            severity="error",
+            code="duplicate_id",
+            message="id 'p1' is used by 2 Patient resources",
+            field="id"
+        )
+    ]
+
+    print(ctx_fixture.id_counts)
+    assert actual == expected
+
+
+def test_duplicate_ids_no_resource_type(ctx_fixture):
+    resource = {"id": "p1"}
+    actual = check_duplicate_ids(resource, ctx_fixture)
+    expected: list[ValidationIssue] = []
+    assert actual == expected
+
+
+def test_duplicate_ids_no_id(ctx_fixture):
+    resource = {"resourceType": "Patient"}
+    actual = check_duplicate_ids(resource, ctx_fixture)
+    expected: list[ValidationIssue] = []
+    assert actual == expected
