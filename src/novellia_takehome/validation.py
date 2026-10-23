@@ -1,15 +1,14 @@
 """Data-quality checks that go beyond what the R4B models enforce.
 
-Each rule is a function `(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]`
-that works on the resource's JSON form. To add a rule, write one and append it to RULES.
+Each check is a function `(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]`
+that works on the resource's JSON form. validate_resources runs them all.
 """
 
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Literal
 
 from fhir.resources.R4B.resource import Resource
-from loguru import logger
 from pydantic import BaseModel
 
 UCUM_SYSTEM = "http://unitsofmeasure.org"
@@ -72,10 +71,7 @@ class ValidationContext:
         self.patient_ids = self.ids_by_type["Patient"]
 
 
-Rule = Callable[[dict, ValidationContext], list[ValidationIssue]]
-
-
-def make_issue(resource: dict, severity: str, code: str, message: str, field: str | None = None) -> ValidationIssue:
+def make_issue(resource: dict, severity: Literal["error", "warning"], code: str, message: str, field: str | None = None) -> ValidationIssue:
     """Build a ValidationIssue for a resource.
 
     Args:
@@ -121,10 +117,15 @@ def check_required_fields(resource: dict, ctx: ValidationContext) -> list[Valida
         list[ValidationIssue]: The problems found, which is empty if there are none.
     """
     issues = []
-    for field in REQUIRED_FIELDS.get(resource["resourceType"], []):
+    try:
+        resource_type = resource["resourceType"]
+    except KeyError:
+        issues.append(make_issue(resource, "error", "missing_resource_type", "Resource is missing resourceType"))
+        return issues
+    for field in REQUIRED_FIELDS.get(resource_type, []):
         if is_empty(resource.get(field)):
             issues.append(make_issue(resource, "error", "missing_required_field", f"{field} is missing or empty", field))
-    if resource["resourceType"] == "Observation" and not observation_has_value(resource):
+    if resource_type == "Observation" and not observation_has_value(resource):
         issues.append(make_issue(resource, "error", "missing_value", "Observation has no value and no components with a value"))
     return issues
 
@@ -271,13 +272,8 @@ def check_units(resource: dict, ctx: ValidationContext) -> list[ValidationIssue]
     return issues
 
 
-RULES: list[Rule] = [check_required_fields, check_patient_reference, check_other_references, check_units]
-
-
 def validate_resources(resources: list[Resource]) -> list[ValidationIssue]:
-    """Run every rule in RULES on every parsed resource.
-
-    A rule that crashes is reported as a `rule_error` issue, not raised.
+    """Run every check on every parsed resource.
 
     Args:
         resources: The parsed FHIR resources.
@@ -289,10 +285,6 @@ def validate_resources(resources: list[Resource]) -> list[ValidationIssue]:
     issues = []
     for resource in resources:
         data = resource.model_dump(mode="json", exclude_none=True)
-        for rule in RULES:
-            try:
-                issues.extend(rule(data, ctx))
-            except Exception as e:  # noqa: BLE001
-                logger.exception(f"Rule {rule.__name__} failed on {data.get('resourceType')} {data.get('id')}")
-                issues.append(make_issue(data, "error", "rule_error", f"{rule.__name__} raised {type(e).__name__}: {e}"))
+        for check in (check_required_fields, check_patient_reference, check_other_references, check_units):
+            issues.extend(check(data, ctx))
     return issues

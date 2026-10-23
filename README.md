@@ -20,10 +20,10 @@ Records that cannot be parsed into this format are not queryable, but the raw in
 In addition to basic search endpoints I included endpoints to retrieve problematic records so that they might be repaired. This includes data that could not be imported into the FHIR R4B model -- this is stored as raw JSON and is therefore not searchable, but an endpoint surfaces it so it can be repaired.
 
 ### Case sensitivity
-I don't currently have the domain knowledge to make an evidence-based decision on handling case. FHIR R4B specifies that IDs are case-sensitive, so noah-wyle and Noah-Wyle would be different IDs. However, most non-programmers do not generally do a good job of respecting case-sensitivity, so it seemed useful to be more lenient.
+FHIR R4B specifies that IDs are case-sensitive, so noah-wyle and Noah-Wyle are different IDs, and the API treats them that way.
 
 - **Resource types** (`/resources/{resource_type}` and the `resource_type` filter) are case-insensitive. There is a small fixed set of types, so there is no ambiguity.
-- **Patient IDs** are matched exactly first, and only if that finds no patient, case-insensitively. FHIR IDs are case-sensitive, so the fallback is used only when exactly one patient matches; if two patients differ only in case and neither matches exactly, the result is a `404`. The same rule applies to the patient references inside records, so a record pointing at `Patient/Noah-Wyle` is returned for `noah-wyle` rather than being lost to a data-entry error. It is still reported as `patient_reference_case_mismatch` in `/validation-failures`, so the problem stays visible.
+- **Patient IDs** are matched exactly. A record that references `Patient/Noah-Wyle` is not returned for `noah-wyle`, but it is flagged as `patient_reference_case_mismatch` in `/validation-failures` so it can be repaired.
 - Other IDs and query parameter values (`severity`, `code`) are matched exactly.
 
 ### Areas for expansion
@@ -70,7 +70,7 @@ curl http://localhost:8000/resources/Procedure
 ```
 
 ### `GET /patients/{patient_id}/resources`
-Returns every record that references that patient through `subject`. The Patient record itself is not included; get it from `/resources/Patient`. Returns an empty list if the patient exists but has no records, and `404` if no Patient has that ID. The ID is matched exactly first, then case-insensitively if there is no exact match (see [Case sensitivity](#case-sensitivity)). A record that references `Patient/Noah-Wyle` therefore appears under `noah-wyle`, and is still flagged by `/validation-failures`.
+Returns every record that references that patient through `subject`. The Patient record itself is not included; get it from `/resources/Patient`. Returns an empty list if the patient exists but has no records, and `404` if no Patient has that ID. The ID is matched exactly (see [Case sensitivity](#case-sensitivity)). A record that references `Patient/Noah-Wyle` does not appear under `noah-wyle`, but is flagged by `/validation-failures`.
 
 ```bash
 curl http://localhost:8000/patients/noah-wyle/resources
@@ -94,7 +94,6 @@ The issues can be filtered with query parameters, which can be combined: `severi
 | `patient_reference_case_mismatch` | warning | The reference matches a patient except for case. |
 | `unresolvable_reference` | warning | A non-patient reference (e.g. a Practitioner) matches no loaded resource. |
 | `missing_ucum_unit` | warning | A quantity has no UCUM system or code. |
-| `rule_error` | error | One of the rules itself failed on this record. |
 
 ```bash
 # All issues

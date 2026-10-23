@@ -1,7 +1,7 @@
 [project]
 name = "novellia-takehome"
 version = "0.1.0"
-description = "Add your description here"
+description = "Novellia takehome assignment: API"
 readme = "README.md"
 authors = [
     { name = "Rachel Schirra", email = "rachel@funnyletter.net" }
@@ -20,3 +20,8 @@ novellia-takehome = "novellia_takehome:main"
 [build-system]
 requires = ["uv_build>=0.12.21,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
