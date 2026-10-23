@@ -37,6 +37,9 @@ For time reasons I did not investigate or attempt to implement automated repair 
 
 A system that proposed automatic repairs to this type of field and then required human approval to accept the repair could make this kind of data cleaning more efficient.
 
+#### PUT/POST Endpoints for Data Repair
+Endpoints could be built to add or update records that failed validation, enforcing strict validation on the updated fields. This would provide a means of repairing records with validation issues.
+
 #### Domain-Specific Data Validation
 My data validation focuses on whether data is present and formatted correctly; it does not validate things like whether a dosage is plausible or uses the correct units. For instance, 100**mg** of levothyroxine is not a plausible dosage -- it is very likely that the units are incorrect and it should be 100**mcg** of levothyroxine.
 
@@ -126,7 +129,9 @@ Example response for the last request:
 
 ## Development Notes
 ### Design Regrets
+The `GET /resources/{resource_type}` endpoint returns an empty list both if it receives a valid type but has no records AND if it receives an invalid type. This makes it impossible for the consumer to tell the difference between a valid but incidentally empty query (this type of data exists, there's just none here right now) and an invalid query (this type of data does not exist under this specification). Ideally the endpoint would filter for valid resource types and return an error for invalid ones.
 
+I could have filtered for only the resource types present in the dataset, but these are only a small subset of those available in the R4B spec so that felt very limiting. A better option would be to filter for valid R4B resource types, but I decided not to implement that for time reasons. If I was developing a similar API for production, this is not how I would have handled this.
 
 ### AI Usage
 I used Claude Code to write the majority of the code for the API and to code review the parts I wrote myself. All design decisions were made by me (except for the error severity, which Claude suggested and it sounded like a great idea).
