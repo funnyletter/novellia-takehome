@@ -11,7 +11,7 @@ from fhir.resources.R4B.resource import Resource
 from novellia_takehome.fhir_data import FHIRData
 
 # Relative to the repo root; override with DATA_FILE to point at other data.
-DEFAULT_DATA_FILE = "assignment/backend-takehome-fhir-resources.txt"
+DEFAULT_DATA_FILE = "data/backend-takehome-fhir-resources.txt"
 
 
 @asynccontextmanager

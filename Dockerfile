@@ -12,7 +12,7 @@ COPY src ./src
 RUN uv sync --locked --no-dev
 
 # The data file is read relative to /app (see DEFAULT_DATA_FILE in api.py).
-COPY assignment ./assignment
+COPY data ./data
 
 ENV PATH="/app/.venv/bin:$PATH"
 

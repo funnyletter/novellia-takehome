@@ -12,9 +12,9 @@ I discovered that the data was in FHIR R4B format and used the package `fhir.res
 The downside of this format is that the validation is fairly permissive. I opted to create my own data validation process rather than extending the existing models' validation features to meet my needs just to keep the scope of this project more manageable.
 
 ### Bad Data Handling
-Data that can be parsed into FHIR R4B format is, even if some fields are not valid, so that they remain queryable by all available and parseable fields. Records with invalid fields are flagged, and consumers can retrieve all invalid records for a given resource type. For instance, <insert example>.
+Data that can be parsed into FHIR R4B format is, even if some fields are not valid, so that they remain queryable by all available and parseable fields. Records with invalid fields are flagged, and consumers can retrieve all invalid records for a given resource type. For instance, `GET /validation-failures?resource_type=Condition` will return all `Condition` records that failed validation.
 
-Records that cannot be parsed into this format are not queryable, but the raw input data is flagged and retained. Consumers can retrieve all unparseable records via <insert endpoint>.
+Records that cannot be parsed into this format are not queryable, but the raw input data is flagged and retained. Consumers can retrieve all unparseable records via the `parse_failures` field of `validation-failures`.
 
 ### Extra Feature: Data Validation
 In addition to basic search endpoints I included endpoints to retrieve problematic records so that they might be repaired. This includes data that could not be imported into the FHIR R4B model -- this is stored as raw JSON and is therefore not searchable, but an endpoint surfaces it so it can be repaired.
@@ -56,7 +56,7 @@ uv sync
 uv run novellia-takehome
 ```
 
-The API is at `http://localhost:8000`, with interactive docs at `/docs`. The data is read once at startup from `assignment/backend-takehome-fhir-resources.txt`. To use a different JSONL file, set `DATA_FILE` (in `docker-compose.yml` for Docker, or in your shell otherwise) and restart.
+The API is at `http://localhost:8000`, with interactive docs at `/docs`. The data is read once at startup from `data/backend-takehome-fhir-resources.txt`. To use a different JSONL file, set `DATA_FILE` (in `docker-compose.yml` for Docker, or in your shell otherwise) and restart.
 
 ## Endpoints
 
@@ -125,6 +125,9 @@ Example response for the last request:
 ```
 
 ## Development Notes
+### Design Regrets
+
+
 ### AI Usage
 I used Claude Code to write the majority of the code for the API and to code review the parts I wrote myself. All design decisions were made by me (except for the error severity, which Claude suggested and it sounded like a great idea).
 
@@ -132,4 +135,4 @@ Claude determined that the data was in FHIR R4B format when I gave it the data i
 
 Unit tests were written by hand, because I find writing unit tests is a great way to ensure I understand (and agree with) code written by AI. I did have Claude Code audit my tests to suggest edge cases I might have missed, but did not let it implement tests to ensure that there was human review of all code.
 
-This readme was written by me except for boilerplate in the endpoints section.
+This readme was written by me except for boilerplate and tables in the endpoints section.

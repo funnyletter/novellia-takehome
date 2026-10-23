@@ -5,8 +5,8 @@ services:
       - "8000:8000"
     environment:
       # Path inside the container. Change this to point at a different JSONL file.
-      DATA_FILE: assignment/backend-takehome-fhir-resources.txt
+      DATA_FILE: data/backend-takehome-fhir-resources.txt
     volumes:
       # Mounted so you can drop in a different data file and restart,
       # without rebuilding the image.
-      - ./assignment:/app/assignment:ro
+      - ./data:/app/data:ro
