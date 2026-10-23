@@ -254,8 +254,10 @@ def test_is_empty():
     assert not is_empty(False)
 
 
-def test_required_fields(ctx_fixture):
-    pass
+@pytest.mark.parametrize("resource, expected", REQUIRED_FIELDS_PARAMS)
+def test_required_fields(ctx_fixture, resource, expected):
+    actual = check_required_fields(resource, ctx_fixture)
+    assert actual == [ValidationIssue(**x) for x in expected]
 
 
 @pytest.mark.parametrize("value_param, expected", HAS_VALUE_PARAMS)
@@ -535,8 +537,9 @@ def test_check_units_no_units(observation_fixture, ctx_fixture):
         expected = []
         assert actual == expected
 
-@pytest.mark.parametrize("resource, issue", REQUIRED_FIELDS_PARAMS)
-def test_validate_resources(resource, issue, ctx_fixture):
-    actual = check_required_fields(resource, ctx_fixture)
-    expected = [ValidationIssue(**x) for x in issue]
-    assert actual == expected
+
+def test_validate_resources():
+    # actual = validate_resources(resource)
+    # expected = [ValidationIssue(**x) for x in issue]
+    # assert actual == expected
+    pass
