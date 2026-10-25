@@ -136,7 +136,8 @@ def list_validation_failures(
         code: Only return issues with this code, e.g. "unknown_patient".
 
     Returns:
-        dict: `parse_failures`, the raw records that failed R4B model validation, and
+        dict: `parse_failures`, the raw records that could not be parsed into R4B models (unknown or
+            missing resource type, or failed model validation), and
             `issues`, the problems found by our own rules (see validation.py), after filtering.
     """
     fhir_data = request.app.state.fhir_data
@@ -147,4 +148,4 @@ def list_validation_failures(
         and (resource_type is None or issue.resource_type.lower() == resource_type.lower())
         and (code is None or issue.code == code)
     ]
-    return {"parse_failures": fhir_data.validation_failed, "issues": issues}
+    return {"parse_failures": fhir_data.parse_failures, "issues": issues}

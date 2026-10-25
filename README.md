@@ -82,7 +82,7 @@ curl http://localhost:8000/patients/noah-wyle/resources
 ### `GET /validation-failures`
 Returns everything wrong with the data, in two parts:
 
-- `parse_failures`: raw records of a known FHIR type that failed R4B model validation.
+- `parse_failures`: raw records that could not be parsed into R4B models: those with an unknown or missing `resourceType` (e.g. `ClinicalNote`), those of a known type that failed model validation, and the raw text (as a string) of any line that was not valid JSON. `parse_failures` is not affected by the filter parameters below.
 - `issues`: problems found by this project's own rules in `validation.py`. Each issue has a `resource_type`, `resource_id`, `severity` (`error` or `warning`), a stable `code`, the `field` it concerns, and a human-readable `message`.
 
 The issues can be filtered with query parameters, which can be combined: `severity` (`error` or `warning`), `resource_type` (case-insensitive), and `code`. An invalid `severity` returns `422`.
@@ -113,7 +113,17 @@ Example response for the last request:
 
 ```json
 {
-  "parse_failures": [],
+  "parse_failures": [
+    {
+      "resourceType": "ClinicalNote",
+      "id": "note-robby-001",
+      "status": "final",
+      "subject": {"reference": "Patient/noah-wyle", "display": "Noah Wyle"},
+      "author": {"reference": "Practitioner/dr-robinavitch"},
+      "date": "2025-01-05",
+      "content": "Patient presents with poorly controlled hypertension and diabetes. ..."
+    }
+  ],
   "issues": [
     {
       "resource_type": "Condition",

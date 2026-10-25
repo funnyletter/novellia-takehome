@@ -30,6 +30,7 @@ class FHIRData:
         validation_failed: Raw records of a known type that failed R4B model validation.
         unknown_types: Resource types that are not FHIR R4B, or a placeholder for records
             with no usable type.
+        unknown_type_records: The raw records behind `unknown_types`.
         issues: Problems found by our own data-quality rules.
     """
 
@@ -45,6 +46,7 @@ class FHIRData:
         self.json_decode_failed: list[str] = []
         self.validation_failed: list[dict] = []
         self.unknown_types: set[str] = set()
+        self.unknown_type_records: list[Any] = []
         self.issues: list[ValidationIssue] = []
 
     def raw_data(self) -> list[dict]:
@@ -77,6 +79,16 @@ class FHIRData:
         return self._raw_data
 
 
+    @property
+    def parse_failures(self) -> list[Any]:
+        """Raw records that could not be parsed into R4B models.
+
+        Returns:
+            list[Any]: Records of an unknown or missing type, records that failed model
+                validation, then the raw text of lines that were not valid JSON (as strings).
+        """
+        return [*self.unknown_type_records, *self.validation_failed, *self.json_decode_failed]
+
     def parse_fhir_resource(self, item: Any) -> Resource | None:
         """Parse a raw record into its R4B model.
 
@@ -94,6 +106,7 @@ class FHIRData:
         if not isinstance(resource_type, str) or not resource_type.strip():
             logger.warning("Record has no usable resourceType: %.200r", item)
             self.unknown_types.add(MISSING_RESOURCE_TYPE)
+            self.unknown_type_records.append(item)
             return None
         resource_type = resource_type.strip()
         try:
@@ -101,6 +114,7 @@ class FHIRData:
         except ValueError:
             logger.warning("Unknown resource type: %r (id=%s)", resource_type, item.get("id"))
             self.unknown_types.add(resource_type)
+            self.unknown_type_records.append(item)
             return None
         try:
             return cast(Resource, model.model_validate({**item, "resourceType": resource_type}))
@@ -117,6 +131,7 @@ class FHIRData:
         self.resources = []
         self.validation_failed = []
         self.unknown_types = set()
+        self.unknown_type_records = []
         for item in self.raw_data():
             parsed_resource = self.parse_fhir_resource(item)
             if parsed_resource is not None:
