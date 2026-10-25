@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fhir.resources.R4B.resource import Resource
@@ -120,6 +120,21 @@ def list_resources_for_patient(patient_id: str, request: Request) -> list[dict]:
     return [to_json(r) for r in request.app.state.fhir_data.resources if patient_id_of(r) == patient_id]
 
 
+def raw_resource_type(item: Any) -> str | None:
+    """Return the trimmed, lowercased resourceType of a raw record, if it has a usable one.
+
+    Args:
+        item: A raw record. It may be a dict or, for lines that were not valid JSON, a string.
+
+    Returns:
+        str | None: The lowercased type, or None if the record has no usable resourceType.
+    """
+    resource_type = item.get("resourceType") if isinstance(item, dict) else None
+    if not isinstance(resource_type, str) or not resource_type.strip():
+        return None
+    return resource_type.strip().lower()
+
+
 @app.get("/validation-failures")
 def list_validation_failures(
     request: Request,
@@ -131,14 +146,16 @@ def list_validation_failures(
 
     Args:
         request: The incoming request, used to reach the loaded data.
-        severity: Only return issues with this severity.
-        resource_type: Only return issues for this resource type. Case-insensitive.
-        code: Only return issues with this code, e.g. "unknown_patient".
+        severity: Only return issues with this severity. Parse failures count as errors.
+        resource_type: Only return failures for this resource type. Case-insensitive. Parse
+            failures with no usable resourceType never match.
+        code: Only return issues with this code, e.g. "unknown_patient". Parse failures have no
+            code, so they are left out.
 
     Returns:
         dict: `parse_failures`, the raw records that could not be parsed into R4B models (unknown or
             missing resource type, or failed model validation), and
-            `issues`, the problems found by our own rules (see validation.py), after filtering.
+            `issues`, the problems found by our own rules (see validation.py). Both are filtered.
     """
     fhir_data = request.app.state.fhir_data
     issues = [
@@ -148,4 +165,11 @@ def list_validation_failures(
         and (resource_type is None or issue.resource_type.lower() == resource_type.lower())
         and (code is None or issue.code == code)
     ]
-    return {"parse_failures": fhir_data.parse_failures, "issues": issues}
+    parse_failures = []
+    if severity in (None, "error") and code is None:
+        parse_failures = [
+            item
+            for item in fhir_data.parse_failures
+            if resource_type is None or raw_resource_type(item) == resource_type.strip().lower()
+        ]
+    return {"parse_failures": parse_failures, "issues": issues}

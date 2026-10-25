@@ -82,7 +82,7 @@ curl http://localhost:8000/patients/noah-wyle/resources
 ### `GET /validation-failures`
 Returns everything wrong with the data, in two parts:
 
-- `parse_failures`: raw records that could not be parsed into R4B models: those with an unknown or missing `resourceType` (e.g. `ClinicalNote`), those of a known type that failed model validation, and the raw text (as a string) of any line that was not valid JSON. `parse_failures` is not affected by the filter parameters below.
+- `parse_failures`: raw records that could not be parsed into R4B models: those with an unknown or missing `resourceType` (e.g. `ClinicalNote`), those of a known type that failed model validation, and the raw text (as a string) of any line that was not valid JSON. `parse_failures` is filtered by the parameters below: `resource_type` matches the record's `resourceType` (case-insensitive, trimmed), so records with a missing type and non-JSON lines only appear when it is not set; parse failures count as `error` severity, so `severity=warning` excludes them; and they have no `code`, so any `code` filter excludes them.
 - `issues`: problems found by this project's own rules in `validation.py`. Each issue has a `resource_type`, `resource_id`, `severity` (`error` or `warning`), a stable `code`, the `field` it concerns, and a human-readable `message`.
 
 The issues can be filtered with query parameters, which can be combined: `severity` (`error` or `warning`), `resource_type` (case-insensitive), and `code`. An invalid `severity` returns `422`.

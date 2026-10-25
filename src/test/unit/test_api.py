@@ -3,12 +3,15 @@ import logging
 from pathlib import Path
 
 import pytest
+from types import SimpleNamespace
 from fhir.resources.R4B.observation import Observation
 from fhir.resources.R4B.patient import Patient
 from fhir.resources.R4B.resource import Resource
 
 from src.novellia_takehome.api import (
     group_by_type,
+    list_validation_failures,
+    raw_resource_type,
     patient_id_of,
     to_json
 )
@@ -110,3 +113,48 @@ def test_to_json(patient_resources, observation_resources):
     assert actual == expected
 
 
+
+
+@pytest.fixture
+def failures_request():
+    fhir_data = SimpleNamespace(
+        issues=[],
+        parse_failures=[
+            {"resourceType": "ClinicalNote", "id": "note-1"},
+            {"resourceType": " Condition ", "id": "bad-condition"},
+            {"id": "no-type"},
+            "not json {",
+        ],
+    )
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(fhir_data=fhir_data)))
+
+
+def test_raw_resource_type():
+    assert raw_resource_type({"resourceType": " Condition "}) == "condition"
+    assert raw_resource_type({"id": "x"}) is None
+    assert raw_resource_type({"resourceType": "  "}) is None
+    assert raw_resource_type("not json {") is None
+
+
+def test_parse_failures_unfiltered(failures_request):
+    result = list_validation_failures(failures_request)
+    assert len(result["parse_failures"]) == 4
+
+
+def test_parse_failures_filtered_by_resource_type(failures_request):
+    result = list_validation_failures(failures_request, resource_type="condition")
+    assert result["parse_failures"] == [{"resourceType": " Condition ", "id": "bad-condition"}]
+
+
+def test_parse_failures_unknown_type_filter(failures_request):
+    result = list_validation_failures(failures_request, resource_type="ClinicalNote")
+    assert result["parse_failures"] == [{"resourceType": "ClinicalNote", "id": "note-1"}]
+
+
+def test_parse_failures_count_as_errors(failures_request):
+    assert len(list_validation_failures(failures_request, severity="error")["parse_failures"]) == 4
+    assert list_validation_failures(failures_request, severity="warning")["parse_failures"] == []
+
+
+def test_parse_failures_excluded_by_code(failures_request):
+    assert list_validation_failures(failures_request, code="unknown_patient")["parse_failures"] == []

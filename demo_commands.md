@@ -50,6 +50,11 @@ curl http://localhost:8000/validation-failures?severity=mid
 curl "http://localhost:8000/validation-failures?resource_type=Condition&severity=error"
 ```
 
+#### Parse failures for one resource type
+```bash
+curl "http://localhost:8000/validation-failures?resource_type=ClinicalNote"
+```
+
 #### Validation failures filtered by issue code
 ```bash
 curl "http://localhost:8000/validation-failures?code=unresolvable_reference"
